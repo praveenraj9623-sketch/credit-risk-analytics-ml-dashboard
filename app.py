@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 from scipy.stats import ttest_ind, chi2_contingency
 
+# ===============================
+# PAGE CONFIG
+# ===============================
+
 st.set_page_config(
     page_title="Credit Portfolio Risk Analytics",
     page_icon="📊",
@@ -9,20 +13,30 @@ st.set_page_config(
 )
 
 st.title("📊 Credit Portfolio Risk Analytics Dashboard")
-st.write("End-to-end credit risk analytics using PySpark, Databricks SQL, Machine Learning, and statistical testing.")
+st.write(
+    "End-to-end credit risk analytics using PySpark, Databricks SQL, Machine Learning, "
+    "and statistical testing."
+)
 
 # ===============================
 # LOAD DATA
 # ===============================
 
-df = pd.read_csv("data/processed/credit_dashboard_data.csv")
+@st.cache_data
+def load_data():
+    return pd.read_csv("data/processed/credit_dashboard_data.csv")
 
-# Try loading ML predictions
-try:
-    ml_df = pd.read_csv("data/processed/ml_predictions.csv")
-    ml_available = True
-except:
-    ml_available = False
+
+@st.cache_data
+def load_ml_predictions():
+    try:
+        return pd.read_csv("data/processed/ml_predictions.csv"), True
+    except FileNotFoundError:
+        return pd.DataFrame(), False
+
+
+df = load_data()
+ml_df, ml_available = load_ml_predictions()
 
 # ===============================
 # SIDEBAR FILTERS
@@ -32,26 +46,26 @@ st.sidebar.header("🔍 Filters")
 
 income_filter = st.sidebar.multiselect(
     "Income Segment",
-    df["INCOME_SEGMENT"].unique(),
-    default=df["INCOME_SEGMENT"].unique()
+    sorted(df["INCOME_SEGMENT"].dropna().unique()),
+    default=sorted(df["INCOME_SEGMENT"].dropna().unique())
 )
 
 gender_filter = st.sidebar.multiselect(
     "Gender",
-    df["CODE_GENDER"].unique(),
-    default=df["CODE_GENDER"].unique()
+    sorted(df["CODE_GENDER"].dropna().unique()),
+    default=sorted(df["CODE_GENDER"].dropna().unique())
 )
 
 credit_filter = st.sidebar.multiselect(
     "Credit Risk Band",
-    df["CREDIT_RISK_BAND"].unique(),
-    default=df["CREDIT_RISK_BAND"].unique()
+    sorted(df["CREDIT_RISK_BAND"].dropna().unique()),
+    default=sorted(df["CREDIT_RISK_BAND"].dropna().unique())
 )
 
 annuity_filter = st.sidebar.multiselect(
     "Repayment Risk Band",
-    df["ANNUITY_RISK_BAND"].unique(),
-    default=df["ANNUITY_RISK_BAND"].unique()
+    sorted(df["ANNUITY_RISK_BAND"].dropna().unique()),
+    default=sorted(df["ANNUITY_RISK_BAND"].dropna().unique())
 )
 
 filtered_df = df[
@@ -60,6 +74,22 @@ filtered_df = df[
     (df["CREDIT_RISK_BAND"].isin(credit_filter)) &
     (df["ANNUITY_RISK_BAND"].isin(annuity_filter))
 ]
+
+# ===============================
+# HELPER FUNCTION
+# ===============================
+
+def default_rate_chart(data, group_col):
+    chart_df = (
+        data.groupby(group_col)["TARGET"]
+        .mean()
+        .mul(100)
+        .reset_index()
+        .rename(columns={"TARGET": "Default Rate (%)"})
+        .sort_values(by="Default Rate (%)", ascending=False)
+    )
+    return chart_df
+
 
 # ===============================
 # TABS
@@ -81,29 +111,37 @@ with tab1:
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Total Customers", len(filtered_df))
-    col2.metric("Default Customers", int(filtered_df["TARGET"].sum()))
-    col3.metric("Default Rate (%)", round(filtered_df["TARGET"].mean() * 100, 2))
-    col4.metric("Average Credit", round(filtered_df["AMT_CREDIT"].mean(), 2))
+    total_customers = len(filtered_df)
+    default_customers = int(filtered_df["TARGET"].sum())
+    default_rate = round(filtered_df["TARGET"].mean() * 100, 2)
+    avg_credit = round(filtered_df["AMT_CREDIT"].mean(), 2)
+
+    col1.metric("Total Customers", total_customers)
+    col2.metric("Default Customers", default_customers)
+    col3.metric("Default Rate (%)", default_rate)
+    col4.metric("Average Credit", avg_credit)
 
     st.divider()
 
     st.subheader("📊 Default Distribution")
 
-    default_dist = filtered_df["TARGET"].value_counts().rename(index={
-        0: "Non-Default",
-        1: "Default"
-    })
+    default_dist = (
+        filtered_df["TARGET"]
+        .value_counts()
+        .rename(index={0: "Non-Default", 1: "Default"})
+        .reset_index()
+    )
 
-    st.bar_chart(default_dist)
+    default_dist.columns = ["Customer Status", "Count"]
+    st.bar_chart(default_dist.set_index("Customer Status"))
 
     st.subheader("💡 Business Summary")
 
     st.write("""
-    - This dashboard analyzes applicant-level credit risk patterns.
-    - The target variable identifies customers with repayment difficulty.
-    - Risk is analyzed using income, credit burden, repayment burden, education, and occupation.
-    - Machine learning is used to support early default-risk identification.
+    - This dashboard analyzes applicant-level credit default risk across a large customer portfolio.
+    - The portfolio has an overall default rate of around **8%**, meaning the target class is highly imbalanced.
+    - Risk is analyzed using income segment, credit burden, repayment burden, education, and occupation.
+    - Machine learning is used as a **baseline risk-screening system**, not as an automatic loan approval system.
     """)
 
 # ===============================
@@ -113,64 +151,62 @@ with tab1:
 with tab2:
     st.subheader("📊 Default Risk by Income Segment")
 
-    income_risk = (
-        filtered_df.groupby("INCOME_SEGMENT")["TARGET"]
-        .mean()
-        .reset_index()
-        .sort_values(by="TARGET", ascending=False)
-    )
-
+    income_risk = default_rate_chart(filtered_df, "INCOME_SEGMENT")
     st.bar_chart(income_risk.set_index("INCOME_SEGMENT"))
+
+    st.write("""
+    **Insight:** Medium-income customers show slightly higher default risk in segment-level analysis.
+    However, raw income alone was not statistically significant in hypothesis testing.
+    """)
 
     st.subheader("📊 Default Risk by Credit Burden")
 
-    credit_risk = (
-        filtered_df.groupby("CREDIT_RISK_BAND")["TARGET"]
-        .mean()
-        .reset_index()
-        .sort_values(by="TARGET", ascending=False)
-    )
-
+    credit_risk = default_rate_chart(filtered_df, "CREDIT_RISK_BAND")
     st.bar_chart(credit_risk.set_index("CREDIT_RISK_BAND"))
+
+    st.write("""
+    **Insight:** Credit burden helps identify customers with higher repayment pressure.
+    Customers with higher credit-to-income ratios may require closer review.
+    """)
 
     st.subheader("📊 Default Risk by Repayment Burden")
 
-    annuity_risk = (
-        filtered_df.groupby("ANNUITY_RISK_BAND")["TARGET"]
-        .mean()
-        .reset_index()
-        .sort_values(by="TARGET", ascending=False)
-    )
-
+    annuity_risk = default_rate_chart(filtered_df, "ANNUITY_RISK_BAND")
     st.bar_chart(annuity_risk.set_index("ANNUITY_RISK_BAND"))
+
+    st.write("""
+    **Insight:** Repayment burden captures how much of the customer’s income is committed to loan repayment.
+    This is useful for identifying financially stressed customers.
+    """)
 
     st.subheader("📊 Default Risk by Education Type")
 
-    education_risk = (
-        filtered_df.groupby("NAME_EDUCATION_TYPE")["TARGET"]
-        .mean()
-        .reset_index()
-        .sort_values(by="TARGET", ascending=False)
-    )
-
+    education_risk = default_rate_chart(filtered_df, "NAME_EDUCATION_TYPE")
     st.bar_chart(education_risk.set_index("NAME_EDUCATION_TYPE"))
+
+    st.write("""
+    **Insight:** Education type shows meaningful differences in default risk and is statistically associated
+    with default behavior based on the chi-square test.
+    """)
 
     st.subheader("📊 Default Risk by Occupation Type")
 
     occupation_risk = (
-        filtered_df.groupby("OCCUPATION_TYPE")["TARGET"]
-        .mean()
-        .reset_index()
-        .sort_values(by="TARGET", ascending=False)
+        default_rate_chart(filtered_df, "OCCUPATION_TYPE")
         .head(15)
     )
 
     st.bar_chart(occupation_risk.set_index("OCCUPATION_TYPE"))
 
+    st.write("""
+    **Insight:** Occupation is one of the strongest segment-level differentiators.
+    Low-skill laborers show the highest default risk among occupation groups.
+    """)
+
     st.subheader("📄 View Filtered Data")
 
     if st.checkbox("Show Filtered Data"):
-        st.dataframe(filtered_df.head(100))
+        st.dataframe(filtered_df.head(100), use_container_width=True)
 
 # ===============================
 # TAB 3: ML MODEL RESULTS
@@ -182,41 +218,88 @@ with tab3:
     if ml_available:
         col1, col2, col3 = st.columns(3)
 
-        col1.metric("Prediction Records", len(ml_df))
-        col2.metric("Predicted Defaulters", int(ml_df["Predicted_TARGET"].sum()))
-        col3.metric(
-            "Avg Default Probability",
-            round(ml_df["Default_Probability"].mean() * 100, 2)
+        prediction_records = len(ml_df)
+        predicted_defaulters = int(ml_df["Predicted_TARGET"].sum())
+        avg_probability = round(ml_df["Default_Probability"].mean() * 100, 2)
+
+        col1.metric("Prediction Records", prediction_records)
+        col2.metric("Predicted Defaulters", predicted_defaulters)
+        col3.metric("Avg Default Probability (%)", avg_probability)
+
+        st.info(
+            "This model is used as a baseline risk-screening system. "
+            "It helps identify customers who may require further review, not automatic loan rejection."
         )
 
         st.subheader("📊 Predicted Default Distribution")
 
-        pred_dist = ml_df["Predicted_TARGET"].value_counts().rename(index={
-            0: "Predicted Non-Default",
-            1: "Predicted Default"
-        })
+        pred_dist = (
+            ml_df["Predicted_TARGET"]
+            .value_counts()
+            .rename(index={0: "Predicted Non-Default", 1: "Predicted Default"})
+            .reset_index()
+        )
 
-        st.bar_chart(pred_dist)
+        pred_dist.columns = ["Prediction Status", "Count"]
+        st.bar_chart(pred_dist.set_index("Prediction Status"))
 
         st.subheader("⚠️ High-Risk Customers")
 
-        high_risk = ml_df[
-            ml_df["Default_Probability"] >= 0.55
-        ].sort_values(by="Default_Probability", ascending=False)
+        high_risk = (
+            ml_df[ml_df["Default_Probability"] >= 0.55]
+            .sort_values(by="Default_Probability", ascending=False)
+            .copy()
+        )
 
-        st.dataframe(high_risk.head(50))
+        high_risk["Default Probability (%)"] = (
+            high_risk["Default_Probability"] * 100
+        ).round(2)
+
+        preferred_cols = [
+            "SK_ID_CURR",
+            "Actual_TARGET",
+            "Predicted_TARGET",
+            "Default Probability (%)",
+            "AMT_INCOME_TOTAL",
+            "AMT_CREDIT",
+            "AMT_ANNUITY",
+            "AGE_YEARS",
+            "EMPLOYMENT_YEARS",
+            "CREDIT_INCOME_RATIO",
+            "ANNUITY_INCOME_RATIO"
+        ]
+
+        available_cols = [col for col in preferred_cols if col in high_risk.columns]
+
+        if len(high_risk) > 0:
+            st.dataframe(high_risk[available_cols].head(50), use_container_width=True)
+        else:
+            st.warning("No high-risk customers found at the current threshold.")
 
         st.subheader("📌 Model Interpretation")
 
         st.write("""
-        - Random Forest was selected as the final model.
-        - Threshold tuning identified 0.55 as the best threshold based on F1-score.
-        - The model showed moderate ROC-AUC and is useful as a baseline risk-screening system.
-        - Precision is low due to class imbalance, but recall helps identify potential risky customers.
+        - Logistic Regression was used as a baseline model.
+        - Random Forest was selected as the final model because it performed better overall.
+        - The dataset is highly imbalanced, with default customers forming a small percentage of the portfolio.
+        - Therefore, the model was evaluated using Precision, Recall, F1-score, ROC-AUC, and Confusion Matrix.
+        - Precision is low due to class imbalance, but recall helps identify potentially risky customers.
+        - The model is useful for **early risk screening** and portfolio monitoring.
         """)
 
+        st.subheader("📊 Final Model Performance")
+
+        model_metrics = pd.DataFrame({
+            "Metric": ["Accuracy", "Precision", "Recall", "F1-score", "ROC-AUC"],
+            "Value": ["~75%", "~14%", "~41%", "~0.21", "~0.65"]
+        })
+
+        st.table(model_metrics)
+
     else:
-        st.warning("ML predictions file not found. Please create `data/processed/ml_predictions.csv` first.")
+        st.warning(
+            "ML predictions file not found. Please create `data/processed/ml_predictions.csv` first."
+        )
 
 # ===============================
 # TAB 4: HYPOTHESIS TESTING
@@ -225,9 +308,15 @@ with tab3:
 with tab4:
     st.subheader("🧪 Statistical Hypothesis Testing")
 
-    st.write("These tests validate whether key variables are statistically related to default risk.")
+    st.write("""
+    These tests validate whether key variables are statistically related to default risk.
+    A p-value below 0.05 means the relationship is statistically significant.
+    """)
 
-    # Income T-test
+    # ============================
+    # 1. Income T-test
+    # ============================
+
     safe_income = df[df["TARGET"] == 0]["AMT_INCOME_TOTAL"]
     risk_income = df[df["TARGET"] == 1]["AMT_INCOME_TOTAL"]
 
@@ -245,9 +334,15 @@ with tab4:
     if p_income < 0.05:
         st.success("Result: Income is significantly different between the two groups.")
     else:
-        st.info("Result: No significant income difference found.")
+        st.info(
+            "Result: No statistically significant income difference was found. "
+            "Income segmentation is useful for business analysis, but raw income alone is not a strong statistical differentiator."
+        )
 
-    # Credit amount T-test
+    # ============================
+    # 2. Credit Amount T-test
+    # ============================
+
     safe_credit = df[df["TARGET"] == 0]["AMT_CREDIT"]
     risk_credit = df[df["TARGET"] == 1]["AMT_CREDIT"]
 
@@ -263,11 +358,16 @@ with tab4:
     st.write("P-value:", p_credit)
 
     if p_credit < 0.05:
-        st.success("Result: Credit amount is significantly different between the two groups.")
+        st.success(
+            "Result: Credit amount is statistically different between default and non-default customers."
+        )
     else:
         st.info("Result: No significant credit amount difference found.")
 
-    # Education Chi-square
+    # ============================
+    # 3. Education Chi-square
+    # ============================
+
     education_table = pd.crosstab(df["NAME_EDUCATION_TYPE"], df["TARGET"])
     chi2_edu, p_edu, dof_edu, expected_edu = chi2_contingency(education_table)
 
@@ -277,11 +377,16 @@ with tab4:
     st.write("P-value:", p_edu)
 
     if p_edu < 0.05:
-        st.success("Result: Education type is significantly associated with default risk.")
+        st.success(
+            "Result: Education type is significantly associated with default risk."
+        )
     else:
         st.info("Result: No significant association found.")
 
-    # Occupation Chi-square
+    # ============================
+    # 4. Occupation Chi-square
+    # ============================
+
     occupation_table = pd.crosstab(df["OCCUPATION_TYPE"], df["TARGET"])
     chi2_occ, p_occ, dof_occ, expected_occ = chi2_contingency(occupation_table)
 
@@ -291,6 +396,33 @@ with tab4:
     st.write("P-value:", p_occ)
 
     if p_occ < 0.05:
-        st.success("Result: Occupation is significantly associated with default risk.")
+        st.success(
+            "Result: Occupation is significantly associated with default risk."
+        )
     else:
         st.info("Result: No significant association found.")
+
+    st.subheader("📌 Summary of Hypothesis Testing")
+
+    hypothesis_summary = pd.DataFrame({
+        "Test": [
+            "Income vs Default",
+            "Credit Amount vs Default",
+            "Education vs Default",
+            "Occupation vs Default"
+        ],
+        "Method": [
+            "T-test",
+            "T-test",
+            "Chi-square",
+            "Chi-square"
+        ],
+        "Result": [
+            "Not statistically significant" if p_income >= 0.05 else "Statistically significant",
+            "Statistically significant" if p_credit < 0.05 else "Not statistically significant",
+            "Statistically significant" if p_edu < 0.05 else "Not statistically significant",
+            "Statistically significant" if p_occ < 0.05 else "Not statistically significant"
+        ]
+    })
+
+    st.table(hypothesis_summary)
