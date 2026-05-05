@@ -4,6 +4,17 @@ An end-to-end Data Science project to analyze and predict customer default risk 
 
 ---
 
+## 🔗 Live Demo
+
+👉 Streamlit App:  
+https://credit-risk-analytics-ml-dashboard-aebrncwcarrlfhvkfzkjnq.streamlit.app/
+
+👉 Databricks Dashboard:  
+https://dbc-f4b685c9-52f9.cloud.databricks.com/sql/dashboardsv3/01f146e4dfcb165fa31c89e27f2e5b28?scrollToWidget=01f146e5c99714289120fe5b054e641c&o=7474659916375521
+
+> Note: Databricks dashboard access may require login. Screenshots are included in the repository.
+
+
 ## 🚀 Project Overview
 
 This project focuses on identifying high-risk customers in a credit portfolio by combining:
@@ -113,19 +124,21 @@ credit-portfolio-risk-analytics/
 
 ## 💡 Key Business Insights
 
-* Medium-income customers show higher default risk
-* Higher credit burden increases default probability
-* Occupation and education significantly impact risk
-* Repayment pressure (annuity ratio) is a strong indicator
-
----
+- The portfolio contains more than 300K customers with an overall default rate of around 8.07%.
+- The dataset is highly imbalanced, so model evaluation focused on Precision, Recall, F1-score, ROC-AUC, and Confusion Matrix instead of accuracy alone.
+- Medium-income customers show slightly higher default risk in segment-level analysis.
+- Raw income difference between default and non-default customers was not statistically significant based on t-test.
+- Credit amount showed statistically significant variation between default and non-default customers.
+- Education type and occupation type are significantly associated with default risk based on chi-square testing.
+- Low-skill laborers show the highest occupation-level default risk.
+- Credit burden and repayment burden features help identify financially stressed customers.
 
 ## 🧪 Hypothesis Testing Results
 
-* Income difference between defaulters and non-defaulters is statistically significant
-* Credit amount shows significant variation across risk groups
-* Education and occupation are strongly associated with default risk
-
+- Income vs Default Risk: Not statistically significant.
+- Credit Amount vs Default Risk: Statistically significant.
+- Education Type vs Default Risk: Statistically significant association.
+- Occupation Type vs Default Risk: Statistically significant association.
 ---
 
 ## 📌 How to Run the Project
